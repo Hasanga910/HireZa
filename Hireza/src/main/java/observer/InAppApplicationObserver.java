@@ -6,7 +6,7 @@ import dao.JobPostDAO;
 import model.JobApplication;
 import model.JobPost;
 
-public class InAppApplicationObserver implements ApplicationObserver {
+public class InAppApplicationObserver implements ApplicationObserver{
     // Database helpers to save notifications
     private final JobNotificationDAO notificationDAO = new JobNotificationDAO();
     private final JobPostDAO jobPostDAO = new JobPostDAO();

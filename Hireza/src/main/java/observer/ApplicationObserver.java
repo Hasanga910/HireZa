@@ -1,6 +1,3 @@
-//the base contract that all observers must follow
-
-
 package observer;
 
 import model.JobApplication;
