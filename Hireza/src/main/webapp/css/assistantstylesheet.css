@@ -1,5 +1,5 @@
 :root {
-    --primary-color: #1e3a8a;
+    --primary-color: #7d09f3;
     --secondary-color: #3b82f6;
     --accent-color: #10b981;
     --text-dark: #1f2937;
@@ -480,5 +480,3 @@ body {
     border-radius: 6px; /* rounded corners if you want */
     object-fit: contain;
 }
-
-
