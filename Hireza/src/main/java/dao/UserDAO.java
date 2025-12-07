@@ -8,12 +8,13 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 
 public class UserDAO {
 
-    public String registerUser(User user) {
-        // Include userId in INSERT because we generate it manually
-        String newUserId = generateNextUserId(); // e.g., "U005"
+    public int registerUser(User user) {
+        // Generate role-specific userId
+        String newUserId = generateNextUserId(user.getRole());
         String sql = "INSERT INTO Users (userId, fullName, username, email, password, role, phone) VALUES (?, ?, ?, ?, ?, ?, ?)";
 
         try (Connection conn = DBConnection.getConnection();
@@ -28,45 +29,39 @@ public class UserDAO {
             stmt.setString(7, user.getPhone());
 
             int rowsInserted = stmt.executeUpdate();
-//            if (rowsInserted > 0) {
-//                user.setId(newUserId); // save the generated ID in the object
-//                System.out.println("✅ User registered successfully with ID: " + newUserId);
-//                return String.valueOf(1);
-//            }
             if (rowsInserted > 0) {
                 user.setId(newUserId);
                 System.out.println("✅ User registered successfully with ID: " + newUserId);
-                return newUserId; // ✅ return actual ID
+                return 1;
             }
 
-
-//        } catch (SQLException e) {
-//            e.printStackTrace();
-//        }
-//        return String.valueOf(-1);
         } catch (SQLException e) {
             e.printStackTrace();
         }
-        return null;
-
+        return -1;
     }
 
     /**
-     * Generate next user ID in format U001, U002, etc.
+     * Generate next user ID based on role
+     * JobSeeker: JB001, JB002, ...
+     * Employer: EMP001, EMP002, ...
+     * Recruiter: REC001, REC002, ...
+     * Assistant: ADS001, ADS002, ...
      */
-    private String generateNextUserId() {
-        // SQL Server uses TOP 1, not LIMIT
-        String sql = "SELECT TOP 1 userId FROM Users ORDER BY userId DESC";
-        String prefix = "U";
-        String newId = "U001";
+    private String generateNextUserId(String role) {
+        String prefix = getRolePrefix(role);
+        String sql = "SELECT TOP 1 userId FROM Users WHERE userId LIKE ? ORDER BY userId DESC";
+        String newId = prefix + "001";
 
         try (Connection conn = DBConnection.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql);
-             ResultSet rs = stmt.executeQuery()) {
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+            stmt.setString(1, prefix + "%");
+            ResultSet rs = stmt.executeQuery();
 
             if (rs.next()) {
-                String lastId = rs.getString("userId"); // e.g., "U012"
-                int numericPart = Integer.parseInt(lastId.substring(1)) + 1;
+                String lastId = rs.getString("userId"); // e.g., "JB012"
+                int numericPart = Integer.parseInt(lastId.substring(prefix.length())) + 1;
                 newId = String.format(prefix + "%03d", numericPart);
             }
 
@@ -77,7 +72,30 @@ public class UserDAO {
         return newId;
     }
 
+    /**
+     * Get prefix based on user role
+     */
+    private String getRolePrefix(String role) {
+        if (role == null) {
+            return "U";
+        }
 
+        switch (role.toLowerCase()) {
+            case "jobseeker":
+                return "JB";
+            case "employer":
+                return "EMP";
+            case "recruiter":
+                return "REC";
+            case "assistant":
+                return "ADS";
+            case "JobCounsellor":
+                return "JC";
+            default:
+                return "U";
+        }
+
+    }
 
     /**
      * FIXED: Login user with username and password (hashed password verification)
@@ -93,7 +111,6 @@ public class UserDAO {
             if (rs.next()) {
                 String storedHashedPassword = rs.getString("password");
 
-                // Verify the password using the RegisterServlet's verifyPassword method
                 if (RegisterServlet.verifyPassword(password, storedHashedPassword)) {
                     User user = new User();
                     user.setId(rs.getString("userId"));
@@ -128,7 +145,6 @@ public class UserDAO {
             if (rs.next()) {
                 String storedHashedPassword = rs.getString("password");
 
-                // Verify the password using the RegisterServlet's verifyPassword method
                 if (RegisterServlet.verifyPassword(password, storedHashedPassword)) {
                     User user = new User();
                     user.setId(rs.getString("userId"));
@@ -148,11 +164,11 @@ public class UserDAO {
         return null;
     }
 
-    public boolean deleteUser(String userId) {
+    public boolean deleteUser(int userId) {
         String sql = "DELETE FROM Users WHERE userId = ?";
         try (Connection conn = DBConnection.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, userId);
+            stmt.setInt(1, userId);
             int rowsDeleted = stmt.executeUpdate();
             return rowsDeleted > 0;
         } catch (SQLException e) {
@@ -161,11 +177,11 @@ public class UserDAO {
         }
     }
 
-    public User getUserById(String userId) {
+    public User getUserById(int userId) {
         String sql = "SELECT * FROM Users WHERE userId = ?";
         try (Connection conn = DBConnection.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, userId);
+            stmt.setInt(1, userId);
             ResultSet rs = stmt.executeQuery();
             if (rs.next()) {
                 User user = new User();
@@ -188,7 +204,6 @@ public class UserDAO {
      * FIXED: Change password with hashed password verification
      */
     public boolean changePassword(int userId, String currentPassword, String newHashedPassword) {
-        // First, get the user's current hashed password
         String selectSql = "SELECT password FROM Users WHERE userId = ?";
         try (Connection conn = DBConnection.getConnection();
              PreparedStatement selectStmt = conn.prepareStatement(selectSql)) {
@@ -199,9 +214,7 @@ public class UserDAO {
             if (rs.next()) {
                 String storedHashedPassword = rs.getString("password");
 
-                // Verify the current password
                 if (RegisterServlet.verifyPassword(currentPassword, storedHashedPassword)) {
-                    // Current password is correct, update to new password
                     String updateSql = "UPDATE Users SET password = ? WHERE userId = ?";
                     try (PreparedStatement updateStmt = conn.prepareStatement(updateSql)) {
                         updateStmt.setString(1, newHashedPassword);
@@ -279,49 +292,47 @@ public class UserDAO {
         return false;
     }
 
-//    public boolean deleteUserWithProfile(String userId) {
-//        String deleteApplications = "DELETE FROM JobApplications WHERE seekerId = ?";
-//        String deleteProfile = "DELETE FROM JobSeekerProfile WHERE seekerId = ?";
-//        String deleteCV = "DELETE FROM CV WHERE seekerId = ?";
-//        String deleteUser = "DELETE FROM Users WHERE userId = ?";
-//
-//        try (Connection conn = DBConnection.getConnection()) {
-//            conn.setAutoCommit(false); //  Start transaction
-//
-//            try (
-//                    PreparedStatement stmtApps = conn.prepareStatement(deleteApplications);
-//                    PreparedStatement stmtProfile = conn.prepareStatement(deleteProfile);
-//                    PreparedStatement stmtCV = conn.prepareStatement(deleteCV);
-//                    PreparedStatement stmtUser = conn.prepareStatement(deleteUser)
-//            ) {
-//                // Step 1: Delete from dependent tables first
-//                stmtApps.setString(1, userId);
-//                stmtApps.executeUpdate();
-//
-//                stmtProfile.setString(1, userId);
-//                stmtProfile.executeUpdate();
-//
-//                stmtCV.setString(1, userId);
-//                stmtCV.executeUpdate();
-//
-//                // Step 2: Delete from main Users table
-//                stmtUser.setString(1, userId);
-//                int rowsDeleted = stmtUser.executeUpdate();
-//
-//                conn.commit(); //  Commit all if successful
-//                return rowsDeleted > 0;
-//
-//            } catch (SQLException e) {
-//                conn.rollback(); // Rollback on error
-//                e.printStackTrace();
-//                return false;
-//            }
-//
-//        } catch (SQLException e) {
-//            e.printStackTrace();
-//            return false;
-//        }
-//    }
+    public boolean deleteUserWithProfile(String userId) {
+        String deleteApplications = "DELETE FROM JobApplications WHERE seekerId = ?";
+        String deleteProfile = "DELETE FROM JobSeekerProfile WHERE seekerId = ?";
+        String deleteCV = "DELETE FROM CV WHERE seekerId = ?";
+        String deleteUser = "DELETE FROM Users WHERE userId = ?";
+
+        try (Connection conn = DBConnection.getConnection()) {
+            conn.setAutoCommit(false);
+
+            try (
+                    PreparedStatement stmtApps = conn.prepareStatement(deleteApplications);
+                    PreparedStatement stmtProfile = conn.prepareStatement(deleteProfile);
+                    PreparedStatement stmtCV = conn.prepareStatement(deleteCV);
+                    PreparedStatement stmtUser = conn.prepareStatement(deleteUser)
+            ) {
+                stmtApps.setString(1, userId);
+                stmtApps.executeUpdate();
+
+                stmtProfile.setString(1, userId);
+                stmtProfile.executeUpdate();
+
+                stmtCV.setString(1, userId);
+                stmtCV.executeUpdate();
+
+                stmtUser.setString(1, userId);
+                int rowsDeleted = stmtUser.executeUpdate();
+
+                conn.commit();
+                return rowsDeleted > 0;
+
+            } catch (SQLException e) {
+                conn.rollback();
+                e.printStackTrace();
+                return false;
+            }
+
+        } catch (SQLException e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
 
     public int getJobSeekersCount() {
         String sql = "SELECT COUNT(*) FROM Users WHERE role = 'JobSeeker'";
@@ -375,48 +386,5 @@ public class UserDAO {
             e.printStackTrace();
         }
         return false;
-    }
-
-
-    public boolean deleteUserWithProfile(String userId) {
-        String deleteActivityLog = "DELETE FROM RecruiterActivityLog WHERE applicationId IN (SELECT applicationId FROM JobApplications WHERE seekerId = ?)";
-        String deleteInterview = "DELETE FROM Interview WHERE applicationId IN (SELECT applicationId FROM JobApplications WHERE seekerId = ?)";
-        String deleteJobNotifications = "DELETE FROM JobNotifications WHERE applicationId IN (SELECT applicationId FROM JobApplications WHERE seekerId = ?)";
-        String deleteApplications = "DELETE FROM JobApplications WHERE seekerId = ?";
-        String deleteProfile = "DELETE FROM JobSeekerProfile WHERE seekerId = ?";
-        String deleteCV = "DELETE FROM CV WHERE seekerId = ?";
-        String deleteUser = "DELETE FROM Users WHERE userId = ?";
-
-        try (Connection conn = DBConnection.getConnection()) {
-            conn.setAutoCommit(false);
-
-            try (PreparedStatement ps1 = conn.prepareStatement(deleteActivityLog);
-                 PreparedStatement ps2 = conn.prepareStatement(deleteInterview);
-                 PreparedStatement ps3 = conn.prepareStatement(deleteJobNotifications);
-                 PreparedStatement ps4 = conn.prepareStatement(deleteApplications);
-                 PreparedStatement ps5 = conn.prepareStatement(deleteProfile);
-                 PreparedStatement ps6 = conn.prepareStatement(deleteCV);
-                 PreparedStatement ps7 = conn.prepareStatement(deleteUser)) {
-
-                ps1.setString(1, userId); ps1.executeUpdate();
-                ps2.setString(1, userId); ps2.executeUpdate();
-                ps3.setString(1, userId); ps3.executeUpdate();
-                ps4.setString(1, userId); ps4.executeUpdate();
-                ps5.setString(1, userId); ps5.executeUpdate();
-                ps6.setString(1, userId); ps6.executeUpdate();
-                ps7.setString(1, userId); ps7.executeUpdate();
-
-                conn.commit();
-                return true;
-
-            } catch (SQLException e) {
-                conn.rollback();
-                e.printStackTrace();
-                return false;
-            }
-        } catch (SQLException e) {
-            e.printStackTrace();
-            return false;
-        }
     }
 }
